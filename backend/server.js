@@ -170,6 +170,7 @@ io.on('connection', (socket) => {
         players: [],
         teams: {},
         status: 'lobby',
+        hostId: userId, // Odayı ilk kuranı host yap
         questions: [],
         currentQuestionIndex: -1,
         timer: null,
@@ -221,21 +222,21 @@ io.on('connection', (socket) => {
     if (!room || room.status !== 'lobby') return;
     
     const teamId = Math.random().toString(36).substring(2, 8);
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+
     room.teams[teamId] = {
       id: teamId,
       name: teamName,
       avatar: avatar || '🛡️',
-      leaderId: socket.id,
+      leaderId: player.userId, // socket.id yerine userId kullan
       score: 0,
       answered: false,
       answer: null
     };
 
-    const player = room.players.find(p => p.id === socket.id);
-    if (player) {
-      player.teamId = teamId;
-      socket.join(teamId); // Lideri takım odasına dahil et
-    }
+    player.teamId = teamId;
+    socket.join(teamId); // Lideri takım odasına dahil et
 
     io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
   });
@@ -298,7 +299,7 @@ io.on('connection', (socket) => {
     const team = player.teamId ? room.teams[player.teamId] : null;
     
     // Eğer takımdaysa sadece lider onaylayabilir
-    if (team && team.leaderId !== socket.id) return;
+    if (team && team.leaderId !== player.userId) return;
     if (team && team.answered) return;
     if (!team && player.answered) return;
 
@@ -372,10 +373,10 @@ io.on('connection', (socket) => {
             } else {
               for (const teamId in room.teams) {
                 const team = room.teams[teamId];
-                if (team.leaderId === socket.id) {
+                if (team.leaderId === player.userId) {
                   const teamMembers = room.players.filter(m => m.teamId === teamId);
                   if (teamMembers.length > 0) {
-                    team.leaderId = teamMembers[0].id;
+                    team.leaderId = teamMembers[0].userId;
                   } else {
                     delete room.teams[teamId];
                   }

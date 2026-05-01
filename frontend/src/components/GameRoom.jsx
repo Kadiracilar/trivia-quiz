@@ -28,7 +28,8 @@ export default function GameRoom() {
   const [roomState, setRoomState] = useState({
     players: [],
     teams: {},
-    status: 'lobby'
+    status: 'lobby',
+    hostId: null
   });
   
   const [questionData, setQuestionData] = useState(null);
@@ -180,7 +181,8 @@ export default function GameRoom() {
 
   const myPlayer = roomState.players.find(p => p.id === socket.id);
   const myTeam = myPlayer?.teamId ? roomState.teams[myPlayer.teamId] : null;
-  const isLeader = myTeam?.leaderId === socket.id;
+  const isLeader = myTeam?.leaderId === userId;
+  const isHost = roomState.hostId === userId;
 
   if (roomState.status === 'lobby') {
     return (
@@ -228,6 +230,7 @@ export default function GameRoom() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {Object.values(roomState.teams).map(team => {
                 const teamMembers = roomState.players.filter(p => p.teamId === team.id);
+                const leader = roomState.players.find(p => p.userId === team.leaderId);
                 return (
                   <div key={team.id} style={{ 
                     background: myPlayer?.teamId === team.id ? 'rgba(0, 242, 254, 0.1)' : 'rgba(255,255,255,0.05)', 
@@ -243,7 +246,7 @@ export default function GameRoom() {
                       {myPlayer?.teamId === team.id && <span style={{ color: 'var(--success)', fontSize: '0.8rem', fontWeight: 'bold' }}>Senin Takımın</span>}
                     </div>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                      Lider: {roomState.players.find(p => p.id === team.leaderId)?.name || 'Bilinmiyor'}
+                      Lider: {leader?.name || 'Bilinmiyor'}
                     </div>
                     <ul style={{ listStyle: 'none', padding: 0, marginTop: '0.5rem', fontSize: '0.9rem' }}>
                       {teamMembers.map(m => (
@@ -284,26 +287,34 @@ export default function GameRoom() {
               })}
             </ul>
 
-            <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              <List size={18} /> Soru Kategorisi
-            </h3>
-            <select 
-              className="input-field" 
-              style={{ cursor: 'pointer', marginBottom: '1.5rem' }}
-              value={selectedCategory} 
-              onChange={(e) => setSelectedCategory(e.target.value)}
-            >
-              <option value="random">🎲 Rastgele (Karışık)</option>
-              <option value="Genel Kültür">🌍 Genel Kültür</option>
-              <option value="Spor">⚽ Spor</option>
-              <option value="Tarih">🏛️ Tarih</option>
-              <option value="Bilim">🔬 Bilim</option>
-              <option value="Coğrafya">🗺️ Coğrafya</option>
-            </select>
+            {isHost ? (
+              <>
+                <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <List size={18} /> Soru Kategorisi
+                </h3>
+                <select 
+                  className="input-field" 
+                  style={{ cursor: 'pointer', marginBottom: '1.5rem' }}
+                  value={selectedCategory} 
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                >
+                  <option value="random">🎲 Rastgele (Karışık)</option>
+                  <option value="Genel Kültür">🌍 Genel Kültür</option>
+                  <option value="Spor">⚽ Spor</option>
+                  <option value="Tarih">🏛️ Tarih</option>
+                  <option value="Bilim">🔬 Bilim</option>
+                  <option value="Coğrafya">🗺️ Coğrafya</option>
+                </select>
 
-            <button className="btn" onClick={startGame} style={{ width: '100%' }}>
-              Oyunu Başlat
-            </button>
+                <button className="btn" onClick={startGame} style={{ width: '100%' }}>
+                  Oyunu Başlat
+                </button>
+              </>
+            ) : (
+              <div style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Hostun oyunu başlatması bekleniyor...
+              </div>
+            )}
           </div>
         </div>
       </div>
