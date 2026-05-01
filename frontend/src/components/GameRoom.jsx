@@ -60,7 +60,8 @@ export default function GameRoom() {
         setRoomState({
           players: data.players || [],
           teams: data.teams || {},
-          status: data.status
+          status: data.status,
+          hostId: data.hostId
         });
       });
 

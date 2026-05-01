@@ -101,7 +101,8 @@ function sendQuestion(roomId) {
   io.to(roomId).emit('room_update', { 
     players: room.players, 
     teams: room.teams, 
-    status: room.status 
+    status: room.status,
+    hostId: room.hostId
   });
 
   io.to(roomId).emit('new_question', questionPayload);
@@ -213,7 +214,8 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room_update', { 
       players: room.players, 
       teams: room.teams, 
-      status: room.status 
+      status: room.status,
+      hostId: room.hostId
     });
   });
 
@@ -221,9 +223,21 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'lobby') return;
     
-    const teamId = Math.random().toString(36).substring(2, 8);
     const player = room.players.find(p => p.id === socket.id);
     if (!player) return;
+
+    // Eğer oyuncu zaten bir takımın lideriyse liderliği devret/takımı sil
+    if (player.teamId) {
+      const oldTeam = room.teams[player.teamId];
+      if (oldTeam && oldTeam.leaderId === player.userId) {
+        const otherMembers = room.players.filter(m => m.teamId === player.teamId && m.userId !== player.userId);
+        if (otherMembers.length > 0) {
+          oldTeam.leaderId = otherMembers[0].userId;
+        } else {
+          delete room.teams[player.teamId];
+        }
+      }
+    }
 
     room.teams[teamId] = {
       id: teamId,
@@ -238,7 +252,12 @@ io.on('connection', (socket) => {
     player.teamId = teamId;
     socket.join(teamId); // Lideri takım odasına dahil et
 
-    io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+    io.to(roomId).emit('room_update', { 
+      players: room.players, 
+      teams: room.teams, 
+      status: room.status,
+      hostId: room.hostId
+    });
   });
 
   socket.on('join_team', ({ roomId, teamId }) => {
@@ -247,11 +266,29 @@ io.on('connection', (socket) => {
 
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
+      // Eğer oyuncu zaten bir takımın lideriyse liderliği devret/takımı sil
+      if (player.teamId) {
+        const oldTeam = room.teams[player.teamId];
+        if (oldTeam && oldTeam.leaderId === player.userId) {
+          const otherMembers = room.players.filter(m => m.teamId === player.teamId && m.userId !== player.userId);
+          if (otherMembers.length > 0) {
+            oldTeam.leaderId = otherMembers[0].userId;
+          } else {
+            delete room.teams[player.teamId];
+          }
+        }
+      }
+
       player.teamId = teamId;
       socket.join(teamId); // Takım içi özel iletişim için odaya katıl
     }
 
-    io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+    io.to(roomId).emit('room_update', { 
+      players: room.players, 
+      teams: room.teams, 
+      status: room.status,
+      hostId: room.hostId
+    });
   });
 
   socket.on('select_intent', ({ roomId, answer }) => {
@@ -341,7 +378,8 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('room_update', { 
         players: room.players, 
         teams: room.teams, 
-        status: room.status 
+        status: room.status,
+        hostId: room.hostId
       });
       
       io.to(roomId).emit('player_answered', { 
@@ -382,7 +420,12 @@ io.on('connection', (socket) => {
                   }
                 }
               }
-              io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+              io.to(roomId).emit('room_update', { 
+                players: room.players, 
+                teams: room.teams, 
+                status: room.status,
+                hostId: room.hostId
+              });
             }
           }
         }, 1000 * 60 * 10); // 10 Dakika
