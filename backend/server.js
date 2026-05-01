@@ -126,6 +126,7 @@ io.on('connection', (socket) => {
       rooms[roomId] = {
         id: roomId,
         players: [],
+        teams: {}, // { teamId: { id, name, avatar, leaderId, score: 0, answered: false, answer: null } }
         status: 'lobby',
         questions: [],
         currentQuestionIndex: -1,
@@ -140,18 +141,55 @@ io.on('connection', (socket) => {
       room.players.push({
         id: socket.id,
         name: name,
+        teamId: null, // Takım ID'si
         score: 0,
         answered: false,
-        answer: null
+        answer: null,
+        intentAnswer: null // Takım içi oylama için
       });
     }
 
     io.to(roomId).emit('room_update', { 
       players: room.players,
+      teams: room.teams,
       status: room.status
     });
   });
 
+  socket.on('create_team', ({ roomId, teamName, avatar }) => {
+    const room = rooms[roomId];
+    if (!room || room.status !== 'lobby') return;
+    
+    const teamId = Math.random().toString(36).substring(2, 8);
+    room.teams[teamId] = {
+      id: teamId,
+      name: teamName,
+      avatar: avatar || '🛡️',
+      leaderId: socket.id,
+      score: 0,
+      answered: false,
+      answer: null
+    };
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (player) {
+      player.teamId = teamId;
+    }
+
+    io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+  });
+
+  socket.on('join_team', ({ roomId, teamId }) => {
+    const room = rooms[roomId];
+    if (!room || room.status !== 'lobby' || !room.teams[teamId]) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (player) {
+      player.teamId = teamId;
+    }
+
+    io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+  });
   socket.on('start_game', async ({roomId, category}) => {
     const room = rooms[roomId];
     if (room && room.status === 'lobby') {
@@ -213,7 +251,19 @@ io.on('connection', (socket) => {
           clearInterval(room.timer);
           delete rooms[roomId];
         } else {
-          io.to(roomId).emit('room_update', { players: room.players, status: room.status });
+          // Eğer çıkan kişi liderse, takımdaki başka birini lider yap veya takımı sil
+          for (const teamId in room.teams) {
+            const team = room.teams[teamId];
+            if (team.leaderId === socket.id) {
+              const teamMembers = room.players.filter(p => p.teamId === teamId);
+              if (teamMembers.length > 0) {
+                team.leaderId = teamMembers[0].id;
+              } else {
+                delete room.teams[teamId];
+              }
+            }
+          }
+          io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
         }
       }
     }

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { Copy, Users, CheckCircle, Clock, Trophy, List } from 'lucide-react';
+import { Copy, Users, CheckCircle, Clock, Trophy, List, Shield } from 'lucide-react';
 
-// Eğer geliştirme aşamasındaysak (Vite) localhost:3001'e, eğer tünel/sunucu üzerindeysek doğrudan aynı adrese bağlan
 const socket = io(import.meta.env.DEV ? 'http://localhost:3001' : '/');
+
+const AVATARS = ['🐉', '🦁', '🦅', '🐺', '🦈', '🐻', '🐼', '🦊', '🦉', '🦄'];
 
 export default function GameRoom() {
   const { roomId } = useParams();
@@ -14,6 +15,7 @@ export default function GameRoom() {
   
   const [roomState, setRoomState] = useState({
     players: [],
+    teams: {},
     status: 'lobby'
   });
   
@@ -21,16 +23,21 @@ export default function GameRoom() {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [resultData, setResultData] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
-  
-  // Kategori seçimi için state
   const [selectedCategory, setSelectedCategory] = useState('random');
+
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamAvatar, setNewTeamAvatar] = useState('🐉');
 
   useEffect(() => {
     if (hasJoined) {
       socket.emit('join_room', { roomId, name: playerName });
 
       socket.on('room_update', (data) => {
-        setRoomState(data);
+        setRoomState({
+          players: data.players || [],
+          teams: data.teams || {},
+          status: data.status
+        });
       });
 
       socket.on('game_starting', () => {
@@ -50,11 +57,11 @@ export default function GameRoom() {
 
       socket.on('question_result', (data) => {
         setResultData(data);
-        setRoomState(prev => ({ ...prev, players: data.players }));
+        setRoomState(prev => ({ ...prev, players: data.players, teams: data.teams || prev.teams }));
       });
 
       socket.on('game_over', (data) => {
-        setRoomState(prev => ({ ...prev, status: 'ended', players: data.players }));
+        setRoomState(prev => ({ ...prev, status: 'ended', players: data.players, teams: data.teams || prev.teams }));
       });
 
       socket.on('error', (data) => {
@@ -103,7 +110,6 @@ export default function GameRoom() {
   };
 
   const startGame = () => {
-    // Kategori bilgisini gönder
     socket.emit('start_game', { roomId, category: selectedCategory });
   };
 
@@ -112,55 +118,145 @@ export default function GameRoom() {
     socket.emit('submit_answer', { roomId, answer });
   };
 
+  const createTeam = (e) => {
+    e.preventDefault();
+    if (!newTeamName.trim()) return;
+    socket.emit('create_team', { roomId, teamName: newTeamName, avatar: newTeamAvatar });
+    setNewTeamName('');
+  };
+
+  const joinTeam = (teamId) => {
+    socket.emit('join_team', { roomId, teamId });
+  };
+
+  const myPlayer = roomState.players.find(p => p.id === socket.id);
+  const myTeam = myPlayer?.teamId ? roomState.teams[myPlayer.teamId] : null;
+
   if (roomState.status === 'lobby') {
     return (
-      <div className="glass-container">
+      <div className="glass-container" style={{ maxWidth: '900px' }}>
         <h2>Bekleme Odası</h2>
         <p>Oda ID: <span style={{color: 'var(--primary)', fontWeight: 'bold'}}>{roomId}</span></p>
         
-        <div style={{ margin: '2rem 0' }}>
+        <div style={{ margin: '1rem 0' }}>
           <button className="btn btn-secondary" onClick={copyInviteLink}>
             <Copy size={18} /> Davet Linkini Kopyala
           </button>
         </div>
 
-        <div style={{ textAlign: 'left' }}>
-          <h3 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Users size={20} /> Oyuncular ({roomState.players.length})
-          </h3>
-          <ul className="player-list">
-            {roomState.players.map((p, index) => (
-              <li key={p.id} className="player-item" style={{ animationDelay: `${index * 0.1}s` }}>
-                {p.name} {p.id === socket.id && '(Sen)'}
-                <CheckCircle size={18} color="var(--success)" />
-              </li>
-            ))}
-          </ul>
-        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', textAlign: 'left', marginTop: '2rem' }}>
+          {/* Sol Taraf: Takımlar */}
+          <div>
+            <h3 style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+              🛡️ Takımlar
+            </h3>
+            
+            {/* Takım Kurma Formu */}
+            {!myPlayer?.teamId && (
+              <form onSubmit={createTeam} style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+                <h4 style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Yeni Takım Kur</h4>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <select 
+                    className="input-field" 
+                    style={{ width: '60px', padding: '0.5rem' }}
+                    value={newTeamAvatar} 
+                    onChange={e => setNewTeamAvatar(e.target.value)}
+                  >
+                    {AVATARS.map(av => <option key={av} value={av}>{av}</option>)}
+                  </select>
+                  <input 
+                    type="text" 
+                    className="input-field" 
+                    placeholder="Takım İsmi" 
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    maxLength={15}
+                  />
+                </div>
+                <button type="submit" className="btn" style={{ padding: '0.5rem', fontSize: '0.9rem' }}>Takım Kur</button>
+              </form>
+            )}
 
-        {/* Kategori Seçimi */}
-        <div style={{ marginTop: '2rem', textAlign: 'left' }}>
-          <h3 style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-            <List size={20} /> Soru Kategorisi
-          </h3>
-          <select 
-            className="input-field" 
-            style={{ cursor: 'pointer' }}
-            value={selectedCategory} 
-            onChange={(e) => setSelectedCategory(e.target.value)}
-          >
-            <option value="random">🎲 Rastgele (Karışık)</option>
-            <option value="Genel Kültür">🌍 Genel Kültür</option>
-            <option value="Spor">⚽ Spor</option>
-            <option value="Tarih">🏛️ Tarih</option>
-            <option value="Bilim">🔬 Bilim</option>
-            <option value="Coğrafya">🗺️ Coğrafya</option>
-          </select>
-        </div>
+            {/* Mevcut Takımlar Listesi */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {Object.values(roomState.teams).map(team => {
+                const teamMembers = roomState.players.filter(p => p.teamId === team.id);
+                return (
+                  <div key={team.id} style={{ 
+                    background: myPlayer?.teamId === team.id ? 'rgba(0, 242, 254, 0.1)' : 'rgba(255,255,255,0.05)', 
+                    border: myPlayer?.teamId === team.id ? '1px solid var(--primary)' : '1px solid var(--glass-border)',
+                    padding: '1rem', 
+                    borderRadius: '8px' 
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{team.avatar} {team.name}</span>
+                      {myPlayer?.teamId !== team.id && (
+                        <button className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={() => joinTeam(team.id)}>Katıl</button>
+                      )}
+                      {myPlayer?.teamId === team.id && <span style={{ color: 'var(--success)', fontSize: '0.8rem', fontWeight: 'bold' }}>Senin Takımın</span>}
+                    </div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                      Lider: {roomState.players.find(p => p.id === team.leaderId)?.name || 'Bilinmiyor'}
+                    </div>
+                    <ul style={{ listStyle: 'none', padding: 0, marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                      {teamMembers.map(m => (
+                        <li key={m.id}>• {m.name} {m.id === socket.id && '(Sen)'}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+              {Object.keys(roomState.teams).length === 0 && (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Henüz takım kurulmadı. Hemen bir takım kur!</p>
+              )}
+            </div>
+          </div>
 
-        <button className="btn" onClick={startGame} style={{ marginTop: '1rem' }}>
-          Oyunu Başlat
-        </button>
+          {/* Sağ Taraf: Oyuncular ve Ayarlar */}
+          <div>
+            <h3 style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+              <Users size={20} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} /> Oyuncular ({roomState.players.length})
+            </h3>
+            <ul className="player-list" style={{ marginBottom: '2rem' }}>
+              {roomState.players.map((p, index) => {
+                const pTeam = p.teamId ? roomState.teams[p.teamId] : null;
+                return (
+                  <li key={p.id} className="player-item" style={{ animationDelay: `${index * 0.1}s`, padding: '0.8rem' }}>
+                    <span>{p.name} {p.id === socket.id && '(Sen)'}</span>
+                    {pTeam ? (
+                      <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
+                        {pTeam.avatar} {pTeam.name}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Takımsız</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <List size={18} /> Soru Kategorisi
+            </h3>
+            <select 
+              className="input-field" 
+              style={{ cursor: 'pointer', marginBottom: '1.5rem' }}
+              value={selectedCategory} 
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              <option value="random">🎲 Rastgele (Karışık)</option>
+              <option value="Genel Kültür">🌍 Genel Kültür</option>
+              <option value="Spor">⚽ Spor</option>
+              <option value="Tarih">🏛️ Tarih</option>
+              <option value="Bilim">🔬 Bilim</option>
+              <option value="Coğrafya">🗺️ Coğrafya</option>
+            </select>
+
+            <button className="btn" onClick={startGame} style={{ width: '100%' }}>
+              Oyunu Başlat
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -178,6 +274,12 @@ export default function GameRoom() {
 
     return (
       <div className="glass-container" style={{ maxWidth: '800px' }}>
+        {myTeam && (
+          <div style={{ display: 'inline-block', background: 'rgba(255,255,255,0.1)', padding: '0.5rem 1rem', borderRadius: '20px', marginBottom: '1rem', fontWeight: 'bold' }}>
+            {myTeam.avatar} Takım: {myTeam.name}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <span style={{ fontWeight: 'bold', color: 'var(--text-muted)' }}>
             Soru {questionData.index} / {questionData.total}
@@ -227,6 +329,16 @@ export default function GameRoom() {
             )
           })}
         </div>
+        
+        {/* Oyundaki Takımların Durumu */}
+        <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {Object.values(roomState.teams || {}).map(team => (
+            <div key={team.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '0.5rem 1rem', borderRadius: '12px' }}>
+              <span style={{ fontSize: '1.5rem' }}>{team.avatar}</span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.name}</span>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -240,18 +352,21 @@ export default function GameRoom() {
         <h2>Oyun Bitti!</h2>
         
         <ul className="player-list" style={{ marginTop: '2rem' }}>
-          {sortedPlayers.map((p, index) => (
-            <li key={p.id} className="player-item" style={{ 
-              background: index === 0 ? 'rgba(255, 215, 0, 0.1)' : '',
-              border: index === 0 ? '1px solid rgba(255, 215, 0, 0.3)' : ''
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <span style={{ fontWeight: 'bold', fontSize: '1.2rem', color: index === 0 ? '#FFD700' : 'inherit' }}>#{index + 1}</span>
-                <span>{p.name} {p.id === socket.id && '(Sen)'}</span>
-              </div>
-              <span className="player-score">{p.score} Puan</span>
-            </li>
-          ))}
+          {sortedPlayers.map((p, index) => {
+            const pTeam = p.teamId ? roomState.teams[p.teamId] : null;
+            return (
+              <li key={p.id} className="player-item" style={{ 
+                background: index === 0 ? 'rgba(255, 215, 0, 0.1)' : '',
+                border: index === 0 ? '1px solid rgba(255, 215, 0, 0.3)' : ''
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span style={{ fontWeight: 'bold', fontSize: '1.2rem', color: index === 0 ? '#FFD700' : 'inherit' }}>#{index + 1}</span>
+                  <span>{p.name} {p.id === socket.id && '(Sen)'} {pTeam && <span style={{fontSize:'0.8rem', marginLeft:'0.5rem'}}>{pTeam.avatar}</span>}</span>
+                </div>
+                <span className="player-score">{p.score} Puan</span>
+              </li>
+            );
+          })}
         </ul>
 
         <button className="btn btn-secondary" onClick={() => window.location.href = '/'} style={{ marginTop: '2rem' }}>
