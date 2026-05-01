@@ -98,6 +98,12 @@ function sendQuestion(roomId) {
     timeLimit: QUESTION_TIME
   };
 
+  io.to(roomId).emit('room_update', { 
+    players: room.players, 
+    teams: room.teams, 
+    status: room.status 
+  });
+
   io.to(roomId).emit('new_question', questionPayload);
 
   room.timer = setInterval(() => {
@@ -108,7 +114,8 @@ function sendQuestion(roomId) {
       clearInterval(room.timer);
       io.to(roomId).emit('question_result', { 
         correct_answer: currentQ.correct_answer,
-        players: room.players
+        players: room.players,
+        teams: room.teams
       });
       
       setTimeout(() => {
