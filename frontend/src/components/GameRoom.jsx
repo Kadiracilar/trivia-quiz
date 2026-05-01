@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { Copy, Users, CheckCircle, Clock, Trophy, List, Shield } from 'lucide-react';
+import { Copy, Users, CheckCircle, Clock, Trophy, List, Shield, User } from 'lucide-react';
 
 const socket = io(import.meta.env.DEV ? 'http://localhost:3001' : '/');
 
@@ -28,6 +28,9 @@ export default function GameRoom() {
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamAvatar, setNewTeamAvatar] = useState('🐉');
 
+  // Takım arkadaşlarının seçimlerini tutmak için (id -> answer)
+  const [teamIntents, setTeamIntents] = useState({});
+
   useEffect(() => {
     if (hasJoined) {
       socket.emit('join_room', { roomId, name: playerName });
@@ -49,6 +52,7 @@ export default function GameRoom() {
         setTimeRemaining(data.timeLimit);
         setResultData(null);
         setSelectedAnswer(null);
+        setTeamIntents({}); // Yeni soruda seçimleri sıfırla
       });
 
       socket.on('timer_update', (data) => {
@@ -57,7 +61,18 @@ export default function GameRoom() {
 
       socket.on('question_result', (data) => {
         setResultData(data);
-        setRoomState(prev => ({ ...prev, players: data.players, teams: data.teams || prev.teams }));
+        setRoomState(prev => ({ 
+          ...prev, 
+          players: data.players, 
+          teams: data.teams || prev.teams 
+        }));
+      });
+
+      socket.on('team_intent_update', (data) => {
+        setTeamIntents(prev => ({
+          ...prev,
+          [data.playerId]: { name: data.playerName, answer: data.answer }
+        }));
       });
 
       socket.on('game_over', (data) => {
@@ -74,6 +89,7 @@ export default function GameRoom() {
         socket.off('new_question');
         socket.off('timer_update');
         socket.off('question_result');
+        socket.off('team_intent_update');
         socket.off('game_over');
         socket.off('error');
       };
@@ -113,9 +129,21 @@ export default function GameRoom() {
     socket.emit('start_game', { roomId, category: selectedCategory });
   };
 
-  const submitAnswer = (answer) => {
+  const selectIntent = (answer) => {
+    if (resultData) return;
     setSelectedAnswer(answer);
-    socket.emit('submit_answer', { roomId, answer });
+    socket.emit('select_intent', { roomId, answer });
+    
+    // Eğer bir takımda değilse doğrudan gönder (solo oyuncu)
+    if (!myPlayer?.teamId) {
+      socket.emit('submit_answer', { roomId, answer });
+    }
+  };
+
+  const submitFinalAnswer = () => {
+    if (selectedAnswer && !resultData) {
+      socket.emit('submit_answer', { roomId, answer: selectedAnswer });
+    }
   };
 
   const createTeam = (e) => {
@@ -131,6 +159,7 @@ export default function GameRoom() {
 
   const myPlayer = roomState.players.find(p => p.id === socket.id);
   const myTeam = myPlayer?.teamId ? roomState.teams[myPlayer.teamId] : null;
+  const isLeader = myTeam?.leaderId === socket.id;
 
   if (roomState.status === 'lobby') {
     return (
@@ -145,13 +174,11 @@ export default function GameRoom() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', textAlign: 'left', marginTop: '2rem' }}>
-          {/* Sol Taraf: Takımlar */}
           <div>
             <h3 style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
               🛡️ Takımlar
             </h3>
             
-            {/* Takım Kurma Formu */}
             {!myPlayer?.teamId && (
               <form onSubmit={createTeam} style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
                 <h4 style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Yeni Takım Kur</h4>
@@ -177,7 +204,6 @@ export default function GameRoom() {
               </form>
             )}
 
-            {/* Mevcut Takımlar Listesi */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {Object.values(roomState.teams).map(team => {
                 const teamMembers = roomState.players.filter(p => p.teamId === team.id);
@@ -212,7 +238,6 @@ export default function GameRoom() {
             </div>
           </div>
 
-          {/* Sağ Taraf: Oyuncular ve Ayarlar */}
           <div>
             <h3 style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
               <Users size={20} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} /> Oyuncular ({roomState.players.length})
@@ -272,13 +297,29 @@ export default function GameRoom() {
       return txt.value;
     };
 
+    // Takım arkadaşlarının hangi cevabı seçtiğini bul
+    const getIntentsForAnswer = (answer) => {
+      return Object.entries(teamIntents)
+        .filter(([_, data]) => data.answer === answer)
+        .map(([id, data]) => ({ id, name: data.name }));
+    };
+
+    const hasTeamAnswered = myTeam?.answered;
+
     return (
       <div className="glass-container" style={{ maxWidth: '800px' }}>
-        {myTeam && (
-          <div style={{ display: 'inline-block', background: 'rgba(255,255,255,0.1)', padding: '0.5rem 1rem', borderRadius: '20px', marginBottom: '1rem', fontWeight: 'bold' }}>
-            {myTeam.avatar} Takım: {myTeam.name}
-          </div>
-        )}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '1rem' }}>
+          {myTeam && (
+            <div style={{ background: 'rgba(255,255,255,0.1)', padding: '0.5rem 1rem', borderRadius: '20px', fontWeight: 'bold', border: '1px solid var(--primary)' }}>
+              {myTeam.avatar} Takım: {myTeam.name} {isLeader && <span style={{fontSize: '0.7rem', color: 'var(--primary)', marginLeft: '0.5rem'}}>(Lider)</span>}
+            </div>
+          )}
+          {!myTeam && (
+            <div style={{ background: 'rgba(255,255,255,0.1)', padding: '0.5rem 1rem', borderRadius: '20px', fontWeight: 'bold' }}>
+              👤 Bireysel Yarışmacı
+            </div>
+          )}
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <span style={{ fontWeight: 'bold', color: 'var(--text-muted)' }}>
@@ -305,11 +346,12 @@ export default function GameRoom() {
         <div className="answer-grid">
           {questionData.answers.map((ans, idx) => {
             let btnClass = "answer-btn";
+            const intents = getIntentsForAnswer(ans);
             
             if (resultData) {
               if (ans === resultData.correct_answer) {
                 btnClass += " correct"; 
-              } else if (ans === selectedAnswer) {
+              } else if (ans === selectedAnswer || (myTeam?.answer === ans)) {
                 btnClass += " incorrect"; 
               }
             } else if (selectedAnswer === ans) {
@@ -317,25 +359,56 @@ export default function GameRoom() {
             }
 
             return (
-              <button 
-                key={idx} 
-                className={btnClass}
-                style={selectedAnswer === ans && !resultData ? { borderColor: 'var(--primary)', background: 'rgba(255,255,255,0.1)' } : {}}
-                onClick={() => submitAnswer(ans)}
-                disabled={selectedAnswer !== null || resultData !== null}
-              >
-                {decodeHTML(ans)}
-              </button>
+              <div key={idx} style={{ position: 'relative' }}>
+                <button 
+                  className={btnClass}
+                  style={selectedAnswer === ans && !resultData ? { borderColor: 'var(--primary)', background: 'rgba(255,255,255,0.1)' } : {}}
+                  onClick={() => selectIntent(ans)}
+                  disabled={(myTeam && hasTeamAnswered) || (!myTeam && selectedAnswer !== null) || resultData !== null}
+                >
+                  {decodeHTML(ans)}
+                </button>
+                
+                {/* Takım içi oylama göstergeleri */}
+                {myTeam && intents.length > 0 && !resultData && (
+                  <div style={{ display: 'flex', gap: '2px', position: 'absolute', right: '5px', top: '5px', pointerEvents: 'none' }}>
+                    {intents.map(m => (
+                      <div key={m.id} title={m.name} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', border: '1px solid white' }}></div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>
+
+        {/* Lider Onay Butonu */}
+        {isLeader && selectedAnswer && !hasTeamAnswered && !resultData && (
+          <button className="btn" onClick={submitFinalAnswer} style={{ marginTop: '2rem', background: 'var(--success)' }}>
+            <CheckCircle size={20} /> Takım Kararını Onayla
+          </button>
+        )}
+
+        {hasTeamAnswered && !resultData && (
+          <p style={{ marginTop: '1rem', color: 'var(--success)', fontWeight: 'bold' }}>
+            Takım kararı gönderildi, bekleniyor...
+          </p>
+        )}
         
-        {/* Oyundaki Takımların Durumu */}
         <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           {Object.values(roomState.teams || {}).map(team => (
-            <div key={team.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '0.5rem 1rem', borderRadius: '12px' }}>
+            <div key={team.id} style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              background: team.answered ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0,0,0,0.2)', 
+              padding: '0.5rem 1rem', 
+              borderRadius: '12px',
+              border: team.answered ? '1px solid var(--success)' : '1px solid transparent'
+            }}>
               <span style={{ fontSize: '1.5rem' }}>{team.avatar}</span>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{team.name}</span>
+              {team.answered && <CheckCircle size={12} style={{ color: 'var(--success)' }} />}
             </div>
           ))}
         </div>
@@ -344,7 +417,16 @@ export default function GameRoom() {
   }
 
   if (roomState.status === 'ended') {
-    const sortedPlayers = [...roomState.players].sort((a, b) => b.score - a.score);
+    // Skorları birleştir (Takım veya Solo)
+    const leaderboard = [];
+    Object.values(roomState.teams).forEach(t => {
+      leaderboard.push({ name: t.name, score: t.score, avatar: t.avatar, isTeam: true });
+    });
+    roomState.players.filter(p => !p.teamId).forEach(p => {
+      leaderboard.push({ name: p.name, score: p.score, avatar: '👤', isTeam: false });
+    });
+
+    const sortedLeaderboard = leaderboard.sort((a, b) => b.score - a.score);
     
     return (
       <div className="glass-container">
@@ -352,21 +434,18 @@ export default function GameRoom() {
         <h2>Oyun Bitti!</h2>
         
         <ul className="player-list" style={{ marginTop: '2rem' }}>
-          {sortedPlayers.map((p, index) => {
-            const pTeam = p.teamId ? roomState.teams[p.teamId] : null;
-            return (
-              <li key={p.id} className="player-item" style={{ 
-                background: index === 0 ? 'rgba(255, 215, 0, 0.1)' : '',
-                border: index === 0 ? '1px solid rgba(255, 215, 0, 0.3)' : ''
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span style={{ fontWeight: 'bold', fontSize: '1.2rem', color: index === 0 ? '#FFD700' : 'inherit' }}>#{index + 1}</span>
-                  <span>{p.name} {p.id === socket.id && '(Sen)'} {pTeam && <span style={{fontSize:'0.8rem', marginLeft:'0.5rem'}}>{pTeam.avatar}</span>}</span>
-                </div>
-                <span className="player-score">{p.score} Puan</span>
-              </li>
-            );
-          })}
+          {sortedLeaderboard.map((item, index) => (
+            <li key={index} className="player-item" style={{ 
+              background: index === 0 ? 'rgba(255, 215, 0, 0.1)' : '',
+              border: index === 0 ? '1px solid rgba(255, 215, 0, 0.3)' : ''
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span style={{ fontWeight: 'bold', fontSize: '1.2rem', color: index === 0 ? '#FFD700' : 'inherit' }}>#{index + 1}</span>
+                <span>{item.avatar} {item.name}</span>
+              </div>
+              <span className="player-score">{item.score} Puan</span>
+            </li>
+          ))}
         </ul>
 
         <button className="btn btn-secondary" onClick={() => window.location.href = '/'} style={{ marginTop: '2rem' }}>

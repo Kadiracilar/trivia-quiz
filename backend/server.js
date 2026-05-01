@@ -5,11 +5,13 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
+const distPath = path.resolve(__dirname, '../frontend/dist');
+
 const app = express();
 app.use(cors());
 
-// Frontend derlenmiş dosyalarını sunmak için (Localtunnel/Deploy için)
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+// Frontend derlenmiş dosyalarını sunmak için
+app.use(express.static(distPath));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -67,7 +69,8 @@ function nextQuestion(roomId) {
   if (!room) return;
 
   room.currentQuestionIndex++;
-  room.players.forEach(p => { p.answered = false; p.answer = null; }); 
+  room.players.forEach(p => { p.answered = false; p.answer = null; p.intentAnswer = null; }); 
+  Object.values(room.teams).forEach(t => { t.answered = false; t.answer = null; }); 
 
   if (room.currentQuestionIndex >= room.questions.length) {
     room.status = 'ended';
@@ -186,9 +189,27 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
       player.teamId = teamId;
+      socket.join(teamId); // Takım içi özel iletişim için odaya katıl
     }
 
     io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
+  });
+
+  socket.on('select_intent', ({ roomId, answer }) => {
+    const room = rooms[roomId];
+    if (!room || room.status !== 'playing') return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.teamId) return;
+
+    player.intentAnswer = answer;
+    
+    // Sadece takımdaki diğer üyelere bildir
+    io.to(player.teamId).emit('team_intent_update', { 
+      playerId: socket.id, 
+      playerName: player.name, 
+      answer: answer 
+    });
   });
   socket.on('start_game', async ({roomId, category}) => {
     const room = rooms[roomId];
@@ -214,28 +235,54 @@ io.on('connection', (socket) => {
     if (!room || room.status !== 'playing') return;
 
     const player = room.players.find(p => p.id === socket.id);
-    if (!player || player.answered) return;
+    if (!player) return;
+
+    const team = player.teamId ? room.teams[player.teamId] : null;
+    
+    // Eğer takımdaysa sadece lider onaylayabilir
+    if (team && team.leaderId !== socket.id) return;
+    if (team && team.answered) return;
+    if (!team && player.answered) return;
 
     const currentQ = room.questions[room.currentQuestionIndex];
-    player.answered = true;
-    player.answer = answer;
+    const isCorrect = answer === currentQ.correct_answer;
+    const points = isCorrect ? room.timeRemaining : -5;
 
-    if (answer === currentQ.correct_answer) {
-      player.score += 10;
+    if (team) {
+      team.answered = true;
+      team.answer = answer;
+      team.score += points;
+      // Takımdaki herkesin bireysel durumunu da güncelle (UI için)
+      room.players.filter(p => p.teamId === team.id).forEach(p => {
+        p.answered = true;
+        p.answer = answer;
+        p.score += points;
+      });
+    } else {
+      player.answered = true;
+      player.answer = answer;
+      player.score += points;
     }
 
-    const allAnswered = room.players.every(p => p.answered);
-    if (allAnswered) {
+    const allTeamsAnswered = Object.values(room.teams).every(t => t.answered);
+    const allSoloAnswered = room.players.filter(p => !p.teamId).every(p => p.answered);
+
+    if (allTeamsAnswered && allSoloAnswered) {
       clearInterval(room.timer);
       io.to(roomId).emit('question_result', { 
         correct_answer: currentQ.correct_answer,
-        players: room.players
+        players: room.players,
+        teams: room.teams
       });
       setTimeout(() => {
         nextQuestion(roomId);
       }, 3000);
     } else {
-      io.to(roomId).emit('player_answered', { playerId: socket.id });
+      // Bir takım veya solo oyuncu cevap verdiğinde odaya bildir (kimlerin cevap verdiği görülsün diye)
+      io.to(roomId).emit('player_answered', { 
+        playerId: socket.id, 
+        teamId: player.teamId 
+      });
     }
   });
 
@@ -270,9 +317,22 @@ io.on('connection', (socket) => {
   });
 });
 
-// React Router (Sayfa yenilemelerinde hatayı önlemek için her zaman index.html gönder)
+// React Router fallback (SPA desteği)
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+  // Eğer istek bir dosya uzantısı içeriyorsa ve buraya geldiyse, o asset gerçekten yoktur.
+  if (path.extname(req.path)) {
+    return res.status(404).send('Dosya bulunamadı: ' + req.path);
+  }
+
+  try {
+    const indexPath = path.resolve(distPath, 'index.html');
+    const content = fs.readFileSync(indexPath, 'utf8');
+    res.set('Content-Type', 'text/html');
+    res.send(content);
+  } catch (err) {
+    console.error('index.html okuma hatası:', err);
+    res.status(500).send('Sunucu hatası: index.html dosyası okunamıyor.');
+  }
 });
 
 const PORT = 3001;
