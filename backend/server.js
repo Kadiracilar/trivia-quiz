@@ -359,7 +359,7 @@ io.on('connection', (socket) => {
       if (player) {
         player.connected = false;
         
-        // 5 saniye bekle, eğer reconnect olmazsa tamamen sil
+        // 10 dakika bekle, eğer reconnect olmazsa tamamen sil
         setTimeout(() => {
           const p = room.players.find(p => p.userId === player.userId && !p.connected);
           if (p) {
@@ -384,7 +384,7 @@ io.on('connection', (socket) => {
               io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
             }
           }
-        }, 5000);
+        }, 1000 * 60 * 10); // 10 Dakika
       }
     }
   });

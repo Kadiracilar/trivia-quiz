@@ -45,7 +45,15 @@ export default function GameRoom() {
 
   useEffect(() => {
     if (hasJoined) {
-      socket.emit('join_room', { roomId, name: playerName, userId });
+      const handleJoin = () => {
+        socket.emit('join_room', { roomId, name: playerName, userId });
+      };
+
+      // İlk girişte katıl
+      handleJoin();
+
+      // Bağlantı kopup tekrar geldiğinde (mobilde uygulama öne geldiğinde) otomatik katıl
+      socket.on('connect', handleJoin);
 
       socket.on('room_update', (data) => {
         setRoomState({
@@ -96,6 +104,7 @@ export default function GameRoom() {
       });
 
       return () => {
+        socket.off('connect', handleJoin);
         socket.off('room_update');
         socket.off('game_starting');
         socket.off('new_question');
