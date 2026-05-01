@@ -239,18 +239,19 @@ io.on('connection', (socket) => {
       }
     }
 
+    const teamId = Math.random().toString(36).substring(2, 8);
     room.teams[teamId] = {
       id: teamId,
       name: teamName,
       avatar: avatar || '🛡️',
-      leaderId: player.userId, // socket.id yerine userId kullan
+      leaderId: player.userId,
       score: 0,
       answered: false,
       answer: null
     };
 
     player.teamId = teamId;
-    socket.join(teamId); // Lideri takım odasına dahil et
+    socket.join(teamId);
 
     io.to(roomId).emit('room_update', { 
       players: room.players, 
