@@ -177,6 +177,7 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (player) {
       player.teamId = teamId;
+      socket.join(teamId); // Lideri takım odasına dahil et
     }
 
     io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
@@ -278,7 +279,13 @@ io.on('connection', (socket) => {
         nextQuestion(roomId);
       }, 3000);
     } else {
-      // Bir takım veya solo oyuncu cevap verdiğinde odaya bildir (kimlerin cevap verdiği görülsün diye)
+      // Bir takım veya solo oyuncu cevap verdiğinde odaya bildir
+      io.to(roomId).emit('room_update', { 
+        players: room.players, 
+        teams: room.teams, 
+        status: room.status 
+      });
+      
       io.to(roomId).emit('player_answered', { 
         playerId: socket.id, 
         teamId: player.teamId 

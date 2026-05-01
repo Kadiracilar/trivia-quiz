@@ -369,11 +369,34 @@ export default function GameRoom() {
                   {decodeHTML(ans)}
                 </button>
                 
-                {/* Takım içi oylama göstergeleri */}
+                {/* Takım içi oylama göstergeleri - İsim Etiketleri */}
                 {myTeam && intents.length > 0 && !resultData && (
-                  <div style={{ display: 'flex', gap: '2px', position: 'absolute', right: '5px', top: '5px', pointerEvents: 'none' }}>
+                  <div style={{ 
+                    position: 'absolute', 
+                    right: '10px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'flex-end', 
+                    gap: '4px', 
+                    pointerEvents: 'none',
+                    zIndex: 10
+                  }}>
                     {intents.map(m => (
-                      <div key={m.id} title={m.name} style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)', border: '1px solid white' }}></div>
+                      <span key={m.id} style={{ 
+                        fontSize: '0.65rem', 
+                        background: 'var(--primary)', 
+                        color: '#000', 
+                        padding: '2px 8px', 
+                        borderRadius: '4px', 
+                        fontWeight: 'bold',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                        whiteSpace: 'nowrap',
+                        border: '1px solid rgba(255,255,255,0.2)'
+                      }}>
+                        {m.name}
+                      </span>
                     ))}
                   </div>
                 )}
