@@ -112,6 +112,40 @@ function sendQuestion(roomId) {
 
     if (room.timeRemaining <= 0) {
       clearInterval(room.timer);
+
+      // Otomatik Onaylama Mantığı (Süre bittiğinde)
+      Object.values(room.teams).forEach(team => {
+        if (!team.answered) {
+          const membersWithIntent = room.players.filter(p => p.teamId === team.id && p.intentAnswer);
+          if (membersWithIntent.length > 0) {
+            const counts = {};
+            membersWithIntent.forEach(p => { counts[p.intentAnswer] = (counts[p.intentAnswer] || 0) + 1; });
+            const mostVoted = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
+            
+            team.answered = true;
+            team.answer = mostVoted;
+            const isCorrect = mostVoted === currentQ.correct_answer;
+            const points = isCorrect ? 0 : -5;
+            team.score += points;
+            room.players.filter(p => p.teamId === team.id).forEach(p => {
+              p.answered = true;
+              p.answer = mostVoted;
+              p.score += points;
+            });
+          }
+        }
+      });
+
+      room.players.forEach(p => {
+        if (!p.teamId && !p.answered && p.intentAnswer) {
+          p.answered = true;
+          p.answer = p.intentAnswer;
+          const isCorrect = p.intentAnswer === currentQ.correct_answer;
+          const points = isCorrect ? 0 : -5;
+          p.score += points;
+        }
+      });
+
       io.to(roomId).emit('question_result', { 
         correct_answer: currentQ.correct_answer,
         players: room.players,
