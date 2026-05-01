@@ -163,14 +163,12 @@ function sendQuestion(roomId) {
 io.on('connection', (socket) => {
   console.log(`Kullanıcı bağlandı: ${socket.id}`);
 
-  socket.on('join_room', ({ roomId, name }) => {
-    socket.join(roomId);
-
+  socket.on('join_room', ({ roomId, name, userId }) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
         id: roomId,
         players: [],
-        teams: {}, // { teamId: { id, name, avatar, leaderId, score: 0, answered: false, answer: null } }
+        teams: {},
         status: 'lobby',
         questions: [],
         currentQuestionIndex: -1,
@@ -178,25 +176,43 @@ io.on('connection', (socket) => {
         timeRemaining: 0
       };
     }
-
     const room = rooms[roomId];
-
-    if (!room.players.find(p => p.id === socket.id)) {
-      room.players.push({
-        id: socket.id,
-        name: name,
-        teamId: null, // Takım ID'si
-        score: 0,
-        answered: false,
+    
+    // Eğer oyuncu zaten odadaysa (reconnect), bilgilerini güncelle
+    const existingPlayer = room.players.find(p => p.userId === userId);
+    if (existingPlayer) {
+      existingPlayer.id = socket.id; // Yeni socket ID'sini ata
+      existingPlayer.name = name;
+      existingPlayer.connected = true;
+    } else {
+      room.players.push({ 
+        id: socket.id, 
+        userId: userId,
+        name: name, 
+        teamId: null,
+        score: 0, 
+        answered: false, 
         answer: null,
-        intentAnswer: null // Takım içi oylama için
+        intentAnswer: null,
+        connected: true 
       });
     }
+    
+    socket.join(roomId);
+    
+    // Eğer oyuncu zaten bir takımdaysa, o takımı da odaya tekrar sok
+    const player = room.players.find(p => p.userId === userId);
+    if (player && player.teamId) {
+      socket.join(player.teamId);
+    }
 
+    console.log(`${name} (${userId}) odaya katıldı: ${roomId}`);
+    
+    // Herkese güncel durumu gönder
     io.to(roomId).emit('room_update', { 
-      players: room.players,
-      teams: room.teams,
-      status: room.status
+      players: room.players, 
+      teams: room.teams, 
+      status: room.status 
     });
   });
 
@@ -338,28 +354,37 @@ io.on('connection', (socket) => {
     console.log(`Kullanıcı ayrıldı: ${socket.id}`);
     for (const roomId in rooms) {
       const room = rooms[roomId];
-      const playerIndex = room.players.findIndex(p => p.id === socket.id);
-      if (playerIndex !== -1) {
-        room.players.splice(playerIndex, 1);
+      const player = room.players.find(p => p.id === socket.id);
+      
+      if (player) {
+        player.connected = false;
         
-        if (room.players.length === 0) {
-          clearInterval(room.timer);
-          delete rooms[roomId];
-        } else {
-          // Eğer çıkan kişi liderse, takımdaki başka birini lider yap veya takımı sil
-          for (const teamId in room.teams) {
-            const team = room.teams[teamId];
-            if (team.leaderId === socket.id) {
-              const teamMembers = room.players.filter(p => p.teamId === teamId);
-              if (teamMembers.length > 0) {
-                team.leaderId = teamMembers[0].id;
-              } else {
-                delete room.teams[teamId];
+        // 5 saniye bekle, eğer reconnect olmazsa tamamen sil
+        setTimeout(() => {
+          const p = room.players.find(p => p.userId === player.userId && !p.connected);
+          if (p) {
+            const idx = room.players.indexOf(p);
+            if (idx !== -1) room.players.splice(idx, 1);
+            
+            if (room.players.length === 0) {
+              clearInterval(room.timer);
+              delete rooms[roomId];
+            } else {
+              for (const teamId in room.teams) {
+                const team = room.teams[teamId];
+                if (team.leaderId === socket.id) {
+                  const teamMembers = room.players.filter(m => m.teamId === teamId);
+                  if (teamMembers.length > 0) {
+                    team.leaderId = teamMembers[0].id;
+                  } else {
+                    delete room.teams[teamId];
+                  }
+                }
               }
+              io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
             }
           }
-          io.to(roomId).emit('room_update', { players: room.players, teams: room.teams, status: room.status });
-        }
+        }, 5000);
       }
     }
   });

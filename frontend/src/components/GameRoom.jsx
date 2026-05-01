@@ -3,7 +3,18 @@ import { useParams, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { Copy, Users, CheckCircle, Clock, Trophy, List, Shield, User } from 'lucide-react';
 
-const socket = io(import.meta.env.DEV ? 'http://localhost:3001' : '/');
+const socket = io(import.meta.env.DEV ? 'http://localhost:3001' : '/', {
+  transports: ['websocket', 'polling']
+});
+
+const getUserId = () => {
+  let id = localStorage.getItem('trivia_user_id');
+  if (!id) {
+    id = Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('trivia_user_id', id);
+  }
+  return id;
+};
 
 const AVATARS = ['🐉', '🦁', '🦅', '🐺', '🦈', '🐻', '🐼', '🦊', '🦉', '🦄'];
 
@@ -12,6 +23,7 @@ export default function GameRoom() {
   const location = useLocation();
   const [playerName, setPlayerName] = useState(location.state?.playerName || '');
   const [hasJoined, setHasJoined] = useState(false);
+  const userId = getUserId();
   
   const [roomState, setRoomState] = useState({
     players: [],
@@ -33,7 +45,7 @@ export default function GameRoom() {
 
   useEffect(() => {
     if (hasJoined) {
-      socket.emit('join_room', { roomId, name: playerName });
+      socket.emit('join_room', { roomId, name: playerName, userId });
 
       socket.on('room_update', (data) => {
         setRoomState({
@@ -246,8 +258,11 @@ export default function GameRoom() {
               {roomState.players.map((p, index) => {
                 const pTeam = p.teamId ? roomState.teams[p.teamId] : null;
                 return (
-                  <li key={p.id} className="player-item" style={{ animationDelay: `${index * 0.1}s`, padding: '0.8rem' }}>
-                    <span>{p.name} {p.id === socket.id && '(Sen)'}</span>
+                  <li key={p.id} className="player-item" style={{ animationDelay: `${index * 0.1}s`, padding: '0.8rem', opacity: p.connected ? 1 : 0.5 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: p.connected ? 'var(--success)' : '#666' }}></div>
+                      <span>{p.name} {p.id === socket.id && '(Sen)'} {!p.connected && '(Ayrıldı)'}</span>
+                    </div>
                     {pTeam ? (
                       <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.1)', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
                         {pTeam.avatar} {pTeam.name}
